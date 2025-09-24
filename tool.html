@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>TOEIC Tool: Nghĩa & Phát âm</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: #f9fafb;
+        padding: 30px;
+        line-height: 1.8;
+        color: #333;
+      }
+      h2 {
+        color: #2c3e50;
+      }
+      textarea {
+        width: 100%;
+        max-width: 700px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 16px;
+      }
+      button {
+        margin-top: 10px;
+        padding: 8px 15px;
+        font-size: 16px;
+        border: none;
+        border-radius: 8px;
+        background: #3498db;
+        color: white;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2980b9;
+      }
+      #output {
+        margin-top: 20px;
+        font-size: 18px;
+        max-width: 800px;
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      }
+      .word {
+        cursor: pointer;
+        padding: 0 3px;
+        border-radius: 5px;
+        transition: background 0.2s;
+        position: relative;
+        display: inline-block;
+      }
+      .word:hover {
+        background: #ecf0f1;
+      }
+      .tooltip {
+        display: none;
+        position: absolute;
+        bottom: 120%;
+        left: 0;
+        background: #f0f8ff;
+        padding: 8px 10px;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #2c3e50;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        white-space: normal;
+        z-index: 10;
+        width: 250px;
+      }
+      .word:hover .tooltip {
+        display: block;
+      }
+      .speak-btn {
+        cursor: pointer;
+        color: #3498db;
+        margin-left: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>TOEIC Tool</h2>
+    <textarea
+      id="inputText"
+      rows="4"
+      placeholder="Nhập đoạn văn tiếng Anh..."
+    ></textarea
+    ><br />
+    <button onclick="processText()">Xử lý</button>
+
+    <div id="output"></div>
+
+    <script>
+      // Gọi Free Dictionary API để lấy định nghĩa & đồng nghĩa
+      async function fetchDictionary(word) {
+        try {
+          const resp = await fetch(
+            `https://api.dictionaryapi.dev/api/v2/entries/en/${word}`
+          );
+          if (!resp.ok) throw new Error("Not found");
+          const data = await resp.json();
+          const entry = data[0];
+          const meaningObj = entry.meanings[0];
+          const defObj = meaningObj.definitions[0];
+          const definition = defObj.definition;
+          const synonyms = defObj.synonyms || [];
+          return {
+            definition,
+            synonyms: synonyms.slice(0, 5),
+          };
+        } catch (err) {
+          console.warn("Dictionary API error for", word, err);
+          return null;
+        }
+      }
+
+      // Gọi LibreTranslate để dịch nghĩa tiếng Việt
+      async function translateToVI(text) {
+        try {
+          const resp = await fetch("https://libretranslate.com/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              q: text,
+              source: "en",
+              target: "vi",
+              format: "text",
+            }),
+          });
+          const j = await resp.json();
+          return j.translatedText;
+        } catch (err) {
+          console.warn("Translate API error", err);
+          return "";
+        }
+      }
+
+      function processText() {
+        const text = document.getElementById("inputText").value.trim();
+        const sentences = text.match(/[^.!?]+[.!?]?/g) || [];
+        const container = document.getElementById("output");
+        container.innerHTML = "";
+
+        sentences.forEach((sentence) => {
+          const sentenceSpan = document.createElement("span");
+
+          const words = sentence.trim().split(" ");
+          words.forEach((w) => {
+            const clean = w.replace(/[.,!?]/g, "").toLowerCase();
+            if (!clean) {
+              sentenceSpan.appendChild(document.createTextNode(w + " "));
+            } else {
+              const wordSpan = document.createElement("span");
+              wordSpan.className = "word";
+              wordSpan.textContent = w + " ";
+
+              const tooltip = document.createElement("div");
+              tooltip.className = "tooltip";
+              tooltip.innerHTML = "Loading...";
+
+              wordSpan.appendChild(tooltip);
+
+              // Khi hover: lấy nghĩa tiếng Việt, định nghĩa, đồng nghĩa
+              wordSpan.addEventListener("mouseenter", async () => {
+                if (!tooltip.getAttribute("data-loaded")) {
+                  const dict = await fetchDictionary(clean);
+                  const viWord = await translateToVI(clean);
+
+                  let html = "<b>" + clean + "</b><br>";
+                  if (viWord) {
+                    html += "Tiếng Việt: " + viWord + "<br>";
+                  }
+                  if (dict && dict.definition) {
+                    html += "Định nghĩa: " + dict.definition + "<br>";
+                  }
+                  if (dict && dict.synonyms && dict.synonyms.length > 0) {
+                    html += "Đồng nghĩa: " + dict.synonyms.join(", ");
+                  }
+                  tooltip.innerHTML = html;
+                  tooltip.setAttribute("data-loaded", "1");
+                }
+              });
+
+              // Click: phát âm từ
+              wordSpan.onclick = () => {
+                speak(clean);
+              };
+
+              sentenceSpan.appendChild(wordSpan);
+            }
+          });
+
+          // Thêm nút đọc câu
+          const speakBtn = document.createElement("span");
+          speakBtn.className = "speak-btn";
+          speakBtn.textContent = "🔊";
+          speakBtn.onclick = () => {
+            speak(sentence);
+          };
+
+          container.appendChild(sentenceSpan);
+          container.appendChild(speakBtn);
+          container.appendChild(document.createElement("br"));
+          container.appendChild(document.createElement("br"));
+        });
+      }
+
+      function speak(text) {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US";
+        speechSynthesis.speak(u);
+      }
+    </script>
+  </body>
+</html>
